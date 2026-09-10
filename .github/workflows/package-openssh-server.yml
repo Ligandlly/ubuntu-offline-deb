@@ -23,6 +23,10 @@ jobs:
     container:
       image: ${{ github.event.inputs.ubuntu_image }}
 
+    defaults:
+      run:
+        shell: bash
+
     env:
       DEBIAN_FRONTEND: noninteractive
       PACKAGES: ${{ github.event.inputs.packages }}
@@ -30,7 +34,6 @@ jobs:
     steps:
       - name: 校验输入包名
         id: check
-        shell: bash
         run: |
           set -euo pipefail
 
@@ -61,6 +64,7 @@ jobs:
       - name: 查看系统信息
         run: |
           set -eux
+
           cat /etc/os-release || true
           uname -m
           dpkg --print-architecture || true
@@ -68,6 +72,7 @@ jobs:
       - name: 更新 apt 并安装打包工具
         run: |
           set -eux
+
           apt-get update
           apt-get install -y --no-install-recommends ca-certificates tar gzip
           apt-get clean
@@ -85,7 +90,6 @@ jobs:
           apt-get install -y --download-only --reinstall "${pkgs[@]}"
 
       - name: 打包 deb 文件
-        shell: bash
         run: |
           set -eux
 
