@@ -1,0 +1,73 @@
+name: Package OpenSSH Server for Ubuntu 26.04
+
+on:
+  workflow_dispatch:
+    inputs:
+      ubuntu_image:
+        description: "用于下载包的 Ubuntu 镜像"
+        required: true
+        default: "ubuntu:26.04"
+
+permissions:
+  contents: read
+
+jobs:
+  download-debs:
+    runs-on: ubuntu-latest
+
+    container:
+      image: ${{ github.event.inputs.ubuntu_image }}
+
+    env:
+      DEBIAN_FRONTEND: noninteractive
+
+    steps:
+      - name: 查看系统信息
+        run: |
+          set -eux
+          cat /etc/os-release || true
+          uname -m
+          dpkg --print-architecture || true
+
+      - name: 更新 apt 并安装必要工具
+        run: |
+          set -eux
+          apt-get update
+          apt-get install -y --no-install-recommends ca-certificates tar gzip
+
+      - name: 下载 openssh-server 及依赖
+        run: |
+          set -eux
+          apt-get update
+          apt-get install -y --download-only openssh-server
+
+      - name: 打包 deb 文件
+        shell: bash
+        run: |
+          set -eux
+
+          mkdir -p "$GITHUB_WORKSPACE/dist"
+
+          cd /var/cache/apt/archives
+
+          echo "下载到的 deb 文件："
+          ls -lh *.deb || true
+
+          if ! ls *.deb >/dev/null 2>&1; then
+            echo "错误：/var/cache/apt/archives 下没有找到 .deb 文件" >&2
+            exit 1
+          fi
+
+          tar -czf "$GITHUB_WORKSPACE/dist/openssh-server-ubuntu-26.04-debs.tar.gz" *.deb
+
+          cd "$GITHUB_WORKSPACE/dist"
+          sha256sum openssh-server-ubuntu-26.04-debs.tar.gz > SHA256SUMS
+
+      - name: 上传离线安装包
+        uses: actions/upload-artifact@v4
+        with:
+          name: openssh-server-ubuntu-26.04-debs
+          path: |
+            dist/openssh-server-ubuntu-26.04-debs.tar.gz
+            dist/SHA256SUMS
+          if-no-files-found: error
