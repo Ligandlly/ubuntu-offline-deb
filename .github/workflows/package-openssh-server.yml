@@ -1,8 +1,13 @@
-name: Package OpenSSH Server for Ubuntu 26.04
+name: Package APT packages for offline install
 
 on:
   workflow_dispatch:
     inputs:
+      packages:
+        description: "要打包的 APT 包名，多个包用空格分隔"
+        required: true
+        default: "openssh-server"
+
       ubuntu_image:
         description: "用于下载包的 Ubuntu 镜像"
         required: true
@@ -20,8 +25,39 @@ jobs:
 
     env:
       DEBIAN_FRONTEND: noninteractive
+      PACKAGES: ${{ github.event.inputs.packages }}
 
     steps:
+      - name: 校验输入包名
+        id: check
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          read -r -a pkgs <<< "$PACKAGES"
+
+          if [ "${#pkgs[@]}" -eq 0 ]; then
+            echo "错误：包名不能为空" >&2
+            exit 1
+          fi
+
+          for p in "${pkgs[@]}"; do
+            if ! [[ "$p" =~ ^[a-zA-Z0-9][a-zA-Z0-9.+~-]*$ ]]; then
+              echo "错误：非法包名: $p" >&2
+              exit 1
+            fi
+          done
+
+          safe_name=$(printf '%s' "$PACKAGES" | tr -c 'a-zA-Z0-9._~+-' '-' | sed -e 's/--*/-/g' -e 's/^-//' -e 's/-$//')
+
+          if [ -z "$safe_name" ]; then
+            safe_name="packages"
+          fi
+
+          safe_name="${safe_name:0:80}"
+
+          echo "artifact_name=offline-debs-${safe_name}-run${GITHUB_RUN_NUMBER}" >> "$GITHUB_OUTPUT"
+
       - name: 查看系统信息
         run: |
           set -eux
@@ -29,17 +65,24 @@ jobs:
           uname -m
           dpkg --print-architecture || true
 
-      - name: 更新 apt 并安装必要工具
+      - name: 更新 apt 并安装打包工具
         run: |
           set -eux
           apt-get update
           apt-get install -y --no-install-recommends ca-certificates tar gzip
+          apt-get clean
 
-      - name: 下载 openssh-server 及依赖
+      - name: 下载指定包及依赖
         run: |
           set -eux
+
+          read -r -a pkgs <<< "$PACKAGES"
+
+          echo "即将下载的包: ${pkgs[*]}"
+
           apt-get update
-          apt-get install -y --download-only openssh-server
+
+          apt-get install -y --download-only --reinstall "${pkgs[@]}"
 
       - name: 打包 deb 文件
         shell: bash
@@ -58,16 +101,16 @@ jobs:
             exit 1
           fi
 
-          tar -czf "$GITHUB_WORKSPACE/dist/openssh-server-ubuntu-26.04-debs.tar.gz" *.deb
+          tar -czf "$GITHUB_WORKSPACE/dist/offline-debs.tar.gz" *.deb
 
           cd "$GITHUB_WORKSPACE/dist"
-          sha256sum openssh-server-ubuntu-26.04-debs.tar.gz > SHA256SUMS
+          sha256sum offline-debs.tar.gz > SHA256SUMS
 
       - name: 上传离线安装包
         uses: actions/upload-artifact@v4
         with:
-          name: openssh-server-ubuntu-26.04-debs
+          name: ${{ steps.check.outputs.artifact_name }}
           path: |
-            dist/openssh-server-ubuntu-26.04-debs.tar.gz
+            dist/offline-debs.tar.gz
             dist/SHA256SUMS
           if-no-files-found: error
